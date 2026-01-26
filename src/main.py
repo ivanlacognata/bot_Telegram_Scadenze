@@ -9,7 +9,7 @@ from datetime import date
 import googleSheetRead as gs
 from gannt_reader import read_services_deadlines
 
-TOKEN = "8206230317:AAFOu75hERY8s-siVMuvH95g7JMUNdVJFlI"
+TOKEN = ""
 ERROR_CHAT_ID = -5257429831  # metti un gruppo log o il tuo id
 MESSAGE_TIME = "08:30"
 
