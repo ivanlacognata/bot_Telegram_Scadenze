@@ -131,19 +131,18 @@ def read_services_deadlines(
     client: gspread.Client,
     gantt_url: str,
     worksheet_title: str = "GANTT",
-    start_row: int = 10,
+    start_row: int = 9,
     max_rows: int = 500,
-) -> List[Tuple[str, int, date]]:
+) -> List[Tuple[str, str, int, date]]:
     """
-    Ritorna lista di tuple:
-      (NomeServizio, DurataGiorni, ScadenzaDate)
+    Ritorna lista:
+      (AREA, NomeServizio, DurataGiorni, Scadenza)
 
-    Template:
-      - Nome servizio: colonna B
-      - Durata (Giorni): colonna D
-      - Scadenza: colonna E
-    Lettura: range B{start_row}:E{start_row+max_rows-1}
-    I "buchi" non sono un problema: saltiamo righe incomplete.
+    Regola per riconoscere un'AREA:
+    - colonna B non vuota
+    - colonna D (durata) vuota
+    - colonna E (scadenza) vuota
+    -> è un titolo area (es. "IT", "Marketing"...)
     """
     key = extract_spreadsheet_key(gantt_url)
     sh = client.open_by_key(key)
@@ -158,34 +157,39 @@ def read_services_deadlines(
     rng = f"B{start_row}:E{start_row + max_rows - 1}"  # B,C,D,E
     values = ws.get(rng)
 
-    out: List[Tuple[str, int, date]] = []
+    out: List[Tuple[str, str, int, date]] = []
+    current_area = "Generale"  # fallback se non c'è area
 
     for row in values:
         while len(row) < 4:
             row.append("")
 
-        nome = (row[0] or "").strip()      # B
-        durata_raw = row[2]                # D (nell'intervallo B,C,D,E => index 2)
-        scad_raw = row[3]                  # E (index 3)
+        nome = (row[0] or "").strip()       # B
+        durata_raw = (row[2] or "").strip() # D
+        scad_raw = (row[3] or "").strip()   # E
 
-        # Skip righe vuote o intestazioni
-        if not nome and not str(scad_raw or "").strip() and not str(durata_raw or "").strip():
-            continue
-        if nome.lower() in ("nome area", "gantt"):
+        # righe completamente vuote
+        if not nome and not durata_raw and not scad_raw:
             continue
 
-        # Deve avere almeno nome, durata e scadenza
-        if not nome:
+        # header "Nome Area"
+        if nome.lower() == "nome area":
             continue
-        if str(durata_raw or "").strip() == "" or str(scad_raw or "").strip() == "":
+
+        # riga AREA: ha solo il nome (B) e durata/scadenza vuote
+        if nome and not durata_raw and not scad_raw:
+            current_area = nome
+            continue
+
+        # riga servizio: deve avere nome + durata + scadenza
+        if not nome or not durata_raw or not scad_raw:
             continue
 
         try:
             durata = parse_duration_days(durata_raw)
             scad = parse_deadline_value(scad_raw, start_date)
-            out.append((nome, durata, scad))
+            out.append((current_area, nome, durata, scad))
         except Exception:
-            # riga non interpretabile -> skip
             continue
 
     return out
