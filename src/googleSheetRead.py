@@ -1,56 +1,97 @@
 # googleSheetRead.py
-from datetime import date
 import os
+import re
+from typing import List, Dict, Tuple, Optional
 
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
-# ✅ ID del foglio CONFIG (tra /d/ e /edit nell'URL)
-CONFIG_SPREADSHEET_KEY = "1mwmIAiZjGw831iLQsLBwWPzj6I9tzxX7DNREu6cyuBE"
+# ===== CONFIGURAZIONE =====
+SERVICE_ACCOUNT_FILE = "service_account_official.json"
+IMPERSONATED_USER = "ivan.lacognata@jetop.com"  # email reale con accesso ai file
 
-WORKSHEET_INDEX = 0
-SERVICE_ACCOUNT_FILENAME = "service_account.json"
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
+CONFIG_SPREADSHEET_ID = "1-F8QkULRrF_kfAVcyPdLNiuqqlmsi5ftpQcY7uSnogk"
+CONFIG_RANGE = "Foglio1!A2:D"  # A: Nome | B: ChatId | C: Giorni_avviso | D: Gantt
 
-def get_client() -> gspread.Client:
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(base_dir, SERVICE_ACCOUNT_FILENAME)
-    creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
-    return gspread.authorize(creds)
+HEADERS = ["Nome", "ChatId", "Giorni_avviso", "Gantt"]
 
 
-def export_data():
+def get_sheets_service():
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        raise FileNotFoundError(f"File non trovato: {SERVICE_ACCOUNT_FILE}")
+
+    creds = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE,
+        scopes=SCOPES,
+    )
+
+    delegated_creds = creds.with_subject(IMPERSONATED_USER)
+    return build("sheets", "v4", credentials=delegated_creds)
+
+
+def extract_id_from_url(url: str) -> Optional[str]:
+    """
+    Estrae lo spreadsheetId da un link di Google Sheets.
+    Accetta anche direttamente un ID.
+    """
+    if not url:
+        return None
+    url = str(url).strip()
+
+    # caso: già un ID
+    if re.fullmatch(r"[a-zA-Z0-9-_]{20,}", url):
+        return url
+
+    m = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
+    if m:
+        return m.group(1)
+
+    m = re.search(r"[?&]id=([a-zA-Z0-9-_]+)", url)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+def export_data() -> Tuple[List[Dict[str, str]], object, object]:
     """
     Ritorna:
-      - (data, sheet, client) se ok
-      - (-1, None, None) se errore
+      - data: lista di dict con chiavi HEADERS
+      - sheet_api
+      - service
+    Se errore:
+      - (-1, None, None)
     """
     try:
-        client = get_client()
-        sh = client.open_by_key(CONFIG_SPREADSHEET_KEY)
-        sheet = sh.get_worksheet(WORKSHEET_INDEX)
+        service = get_sheets_service()
+        sheet_api = service.spreadsheets()
 
-        all_data = sheet.get_all_values()
-        if not all_data:
-            print(
-                f"⚠️ Errore\nSeverity: 🟠\nTipo: SheetFormat\nCodice errore: 0007\n"
-                f"Data: {date.today()}\nMessaggio: Foglio config vuoto o intestazioni mancanti"
-            )
-            return -1, None, None
+        result = sheet_api.values().get(
+            spreadsheetId=CONFIG_SPREADSHEET_ID,
+            range=CONFIG_RANGE,
+            valueRenderOption="FORMATTED_VALUE",
+        ).execute()
 
-        headers = all_data[0]
-        rows = all_data[1:]
-        data = [dict(zip(headers, row)) for row in rows if any((c or "").strip() for c in row)]
+        rows = result.get("values", [])
 
-        return data, sheet, client
+        data: List[Dict[str, str]] = []
+        for row in rows:
+            # skip righe completamente vuote
+            if not row or not any(str(x).strip() for x in row):
+                continue
+            # padding: se la riga ha meno colonne di HEADERS
+            row = row + [""] * (len(HEADERS) - len(row))
+
+            entry = dict(zip(HEADERS, row))
+            data.append(entry)
+
+        return data, sheet_api, service
 
     except Exception as e:
-        print(
-            f"⚠️ Errore\nSeverity: 🔴\nTipo: DataImport\nCodice errore: 0001\n"
-            f"Data: {date.today()}\nMessaggio: {type(e).__name__}: {repr(e)}"
-        )
+        print("ERRORE export_data:", e)
         return -1, None, None

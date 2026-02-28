@@ -10,6 +10,7 @@ venv/
 
 # Credentials (IMPORTANT!)
 service_account.json
+service_account_official.json
 
 # OS
 .DS_Store
