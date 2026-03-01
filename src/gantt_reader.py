@@ -1,23 +1,47 @@
-# gantt_reader.py 
+# gantt_reader.py
+
+# ============================================================
+# IMPORT
+# ============================================================
+
 import re
 from datetime import date, datetime, timedelta
 from typing import List, Tuple, Optional
 
 
+# ============================================================
+# UTILITA': ESTRAZIONE SPREADSHEET ID DAL LINK
+# ============================================================
+
 def extract_spreadsheet_key(url: str) -> str:
+    """
+    Estrae lo spreadsheetId da un link Google Sheets.
+
+    Accetta:
+    - link completo (https://docs.google.com/spreadsheets/d/...)
+    - oppure direttamente un ID
+
+    Ritorna:
+    - ID valido (stringa)
+    - solleva ValueError se non riesce ad estrarlo
+    """
     url = (url or "").strip()
 
+    # Caso 1: è già un ID valido
     if re.fullmatch(r"[a-zA-Z0-9-_]{20,}", url):
         return url
 
+    # Caso 2: formato classico /spreadsheets/d/<ID>
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
     if m:
         return m.group(1)
 
+    # Caso 3: parametro ?id=<ID>
     m = re.search(r"[?&]id=([a-zA-Z0-9-_]+)", url)
     if m:
         return m.group(1)
 
+    # Caso 4: fallback generico /d/<ID>
     m = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
     if m:
         return m.group(1)
@@ -25,13 +49,37 @@ def extract_spreadsheet_key(url: str) -> str:
     raise ValueError(f"Link Gantt non valido: impossibile estrarre la key. Valore letto: {url}")
 
 
+# ============================================================
+# CONVERSIONE DATA SERIALE GOOGLE
+# ============================================================
+
 def gs_serial_to_date(serial: float) -> date:
-    """Google Sheets date serial: days since 1899-12-30."""
+    """
+    Converte un seriale Google Sheets in oggetto date.
+
+    Google Sheets conta i giorni dal 1899-12-30.
+    """
     base = date(1899, 12, 30)
     return base + timedelta(days=int(serial))
 
 
+# ============================================================
+# LETTURA CELLA SINGOLA
+# ============================================================
+
 def _get_cell(sheet_api, spreadsheet_id: str, a1: str, value_render_option: str) -> Optional[str]:
+    """
+    Legge una singola cella da Google Sheets usando A1 notation.
+
+    Parametri:
+    - sheet_api: oggetto sheets().values()
+    - spreadsheet_id: ID foglio
+    - a1: riferimento cella (es: "GANTT!F9")
+    - value_render_option: UNFORMATTED_VALUE o FORMATTED_VALUE
+
+    Ritorna:
+    - valore cella oppure None se vuota
+    """
     res = sheet_api.values().get(
         spreadsheetId=spreadsheet_id,
         range=a1,
@@ -44,15 +92,26 @@ def _get_cell(sheet_api, spreadsheet_id: str, a1: str, value_render_option: str)
     return vals[0][0]
 
 
+# ============================================================
+# LETTURA DATA INIZIO PROGETTO (F9)
+# ============================================================
+
 def read_start_date(service, spreadsheet_id: str, worksheet_title: str, debug: bool = False) -> date:
     """
-    Legge la data inizio progetto da F9 in modo robusto:
-    - prova UNFORMATTED_VALUE (seriale numerico) -> conversione
-    - fallback parsing stringa dd/mm, dd/mm/yy, dd/mm/yyyy, ISO
+    Legge la data inizio progetto da cella F9.
+
+    Logica robusta:
+    1) Prova come seriale numerico (UNFORMATTED_VALUE)
+    2) Fallback parsing stringa:
+       - dd/mm
+       - dd/mm/yy
+       - dd/mm/yyyy
+       - ISO format
     """
+
     sheet_api = service.spreadsheets()
 
-    # 1) seriale
+    # 1) Tentativo lettura seriale numerico
     try:
         raw = _get_cell(sheet_api, spreadsheet_id, f"{worksheet_title}!F9", "UNFORMATTED_VALUE")
         if raw is not None and str(raw).strip() != "":
@@ -64,7 +123,7 @@ def read_start_date(service, spreadsheet_id: str, worksheet_title: str, debug: b
         if debug:
             print(f"[GANTT] F9 unformatted read failed: {type(e).__name__}: {e}")
 
-    # 2) stringa
+    # 2) Fallback: stringa formattata
     raw = _get_cell(sheet_api, spreadsheet_id, f"{worksheet_title}!F9", "FORMATTED_VALUE")
     if not raw:
         raise ValueError("Cella F9 (data inizio progetto) vuota")
@@ -72,6 +131,7 @@ def read_start_date(service, spreadsheet_id: str, worksheet_title: str, debug: b
     raw = str(raw).strip()
     parts = raw.split("/")
 
+    # dd/mm/yyyy o dd/mm/yy
     if len(parts) == 3:
         d, m, y = parts
         y_i = int(y)
@@ -79,26 +139,36 @@ def read_start_date(service, spreadsheet_id: str, worksheet_title: str, debug: b
             y_i += 2000
         return date(y_i, int(m), int(d))
 
+    # dd/mm (senza anno)
     if len(parts) == 2:
-        # se manca l'anno, assumo anno corrente
         d, m = parts
         return date(date.today().year, int(m), int(d))
 
+    # formato ISO
     try:
         return datetime.fromisoformat(raw).date()
     except Exception:
         raise ValueError(f"Formato data inizio (F9) non supportato: {raw}")
 
 
+# ============================================================
+# PARSING SCADENZA
+# ============================================================
+
 def parse_deadline_value(v, today: date) -> date:
     """
-    Converte scadenza che può arrivare come:
-    - seriale numerico (UNFORMATTED o anche stringa numerica)
-    - stringa "dd/mm" o "dd/mm/yy" o "dd/mm/yyyy"
+    Converte la scadenza letta dal Gantt in oggetto date.
+
+    Accetta:
+    - seriale numerico
+    - stringa dd/mm
+    - stringa dd/mm/yy
+    - stringa dd/mm/yyyy
+
     Se manca l'anno (dd/mm):
-      - interpreta come "prossima occorrenza" rispetto a today
-        (se già passata quest'anno -> anno+1)
+      - interpreta come prossima occorrenza rispetto a today
     """
+
     if v is None:
         raise ValueError("Scadenza vuota")
 
@@ -106,13 +176,15 @@ def parse_deadline_value(v, today: date) -> date:
     if not s:
         raise ValueError("Scadenza vuota")
 
-    # seriale
+    # Caso 1: seriale
     try:
         return gs_serial_to_date(float(s))
     except Exception:
         pass
 
     parts = s.split("/")
+
+    # dd/mm/yyyy o dd/mm/yy
     if len(parts) == 3:
         d, m, y = parts
         y_i = int(y)
@@ -120,6 +192,7 @@ def parse_deadline_value(v, today: date) -> date:
             y_i += 2000
         return date(y_i, int(m), int(d))
 
+    # dd/mm senza anno → prossima occorrenza
     if len(parts) == 2:
         d, m = parts
         d_i, m_i = int(d), int(m)
@@ -132,15 +205,32 @@ def parse_deadline_value(v, today: date) -> date:
     raise ValueError(f"Formato scadenza non riconosciuto: {s}")
 
 
+# ============================================================
+# PARSING DURATA
+# ============================================================
+
 def parse_duration_days(v) -> int:
-    """Durata in giorni: sempre numerica in colonna D (può arrivare come 3 o 3.0)."""
+    """
+    Converte durata in giorni (colonna D).
+
+    Può arrivare come:
+    - 3
+    - 3.0
+    - stringa "3"
+    """
     if v is None:
         raise ValueError("Durata vuota")
+
     s = str(v).strip()
     if not s:
         raise ValueError("Durata vuota")
+
     return int(float(s))
 
+
+# ============================================================
+# LETTURA SERVIZI DAL GANTT
+# ============================================================
 
 def read_services_deadlines(
     service,
@@ -151,28 +241,34 @@ def read_services_deadlines(
     debug: bool = False,
 ) -> List[Tuple[str, str, int, date]]:
     """
-    Ritorna lista:
-      (AREA, NomeServizio, DurataGiorni, Scadenza)
+    Legge il Gantt e ritorna lista di servizi nel formato:
 
-    Riconoscimento AREA:
-    - colonna B non vuota
-    - colonna D (durata) vuota
-    - colonna E (scadenza) vuota
-    -> è un titolo area (es. "IT", "Marketing"...)
+        (AREA, NomeServizio, DurataGiorni, Scadenza)
+
+    Logica di riconoscimento AREA:
+      - Colonna B non vuota
+      - Colonna D (durata) vuota
+      - Colonna E (scadenza) vuota
+      → è titolo area
 
     Colonne lette:
-      B = nome area / nome servizio
-      D = durata
-      E = scadenza
+      B = Nome area / Nome servizio
+      D = Durata
+      E = Scadenza
     """
+
+    # Estrazione ID foglio
     key = extract_spreadsheet_key(gantt_url)
     sheet_api = service.spreadsheets()
 
+    # Lettura data inizio progetto (utile per robustezza futura)
     _ = read_start_date(service, key, worksheet_title, debug=debug)
 
+    # Calcolo range dinamico
     end_row = start_row + max_rows - 1
     rng = f"{worksheet_title}!B{start_row}:E{end_row}"
 
+    # Lettura blocco dati
     res = sheet_api.values().get(
         spreadsheetId=key,
         range=rng,
@@ -182,43 +278,45 @@ def read_services_deadlines(
     values = res.get("values", [])
 
     out: List[Tuple[str, str, int, date]] = []
-    current_area = "Generale"
+    current_area = "Generale"  # fallback se nessuna area definita
     today = date.today()
 
     for row in values:
+        # Garantisce almeno 4 colonne (B,C,D,E)
         while len(row) < 4:
             row.append("")
 
-        nome = (row[0] or "").strip()  # B
-        durata_raw = row[2]            # D
-        scad_raw = row[3]              # E
+        nome = (row[0] or "").strip()  # Colonna B
+        durata_raw = row[2]            # Colonna D
+        scad_raw = row[3]              # Colonna E
 
         durata_str = str(durata_raw).strip() if durata_raw is not None else ""
         scad_str = str(scad_raw).strip() if scad_raw is not None else ""
 
-        # righe completamente vuote
+        # Riga completamente vuota
         if not nome and not durata_str and not scad_str:
             continue
 
-        # header
+        # Header eventuale
         if nome.lower() == "nome area":
             continue
 
-        # riga AREA
+        # Riga AREA
         if nome and not durata_str and not scad_str:
             current_area = nome
             continue
 
-        # riga servizio valida
+        # Riga servizio incompleta
         if not nome or not durata_str or not scad_str:
             continue
 
+        # Parsing robusto
         try:
             durata = parse_duration_days(durata_raw)
             scad = parse_deadline_value(scad_raw, today)
             out.append((current_area, nome, durata, scad))
         except Exception:
-            # una riga sporca non deve bloccare tutto
+            # Una riga sporca non deve bloccare l'intero Gantt
             continue
 
     return out
