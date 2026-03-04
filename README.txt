@@ -136,6 +136,18 @@ Duplicati nello stesso giorno → NON inviati (uso set).
 
 Il bot supporta gruppi con topic.
 
+Il bot può inviare i messaggi in due modalità, in base al valore della cella
+"Topic_Destinazione" dell'excel:
+
+////Topic_Destinazione non vuoto////
+ Tutti i messaggi verranno inviati in quel topic, 
+ indipendentemente dal nome dell'area.
+
+ Se il topic con quel nome non esiste, i messaggi verranno inviati in General.
+
+////Topic_Destinazione vuoto////
+ Comportamento di default, che è il seguente ↓↓↓
+
 Funzionamento:
  Quando viene creato un topic → auto-registrato
  Quando viene rinominato → aggiornato nel JSON

@@ -12,8 +12,10 @@ venv/
 service_account.json
 service_account_official.json
 
+topic_map.json
+
 # OS
 .DS_Store
 Thumbs.db
 
-topic_map.json
+.env

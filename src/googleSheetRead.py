@@ -8,6 +8,10 @@ import os
 import re
 from typing import List, Dict, Tuple, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Librerie Google API
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -18,11 +22,21 @@ from googleapiclient.discovery import build
 # ============================================================
 
 # File JSON del Service Account ufficiale (con Domain-Wide Delegation attiva)
-SERVICE_ACCOUNT_FILE = "service_account_official.json"
+SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 
 # Email reale del dominio JEToP che ha accesso ai file GDrive.
 # Il service account impersonerà questo utente.
-IMPERSONATED_USER = "ivan.lacognata@jetop.com"
+IMPERSONATED_USER = os.getenv("IMPERSONATED_USER")
+
+# ID del foglio Google di configurazione (NON il link completo)
+CONFIG_SPREADSHEET_ID = os.getenv("CONFIG_SPREADSHEET_ID")
+
+# Range di lettura del foglio config:
+# A: Nome progetto
+# B: ChatId Telegram
+# C: Giorni_avviso
+# D: Link Gantt
+CONFIG_RANGE = os.getenv("CONFIG_RANGE", "Foglio1!A2:E")
 
 # Scope autorizzazioni richieste.
 # Attualmente full access a Sheets + Drive.
@@ -32,18 +46,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# ID del foglio Google di configurazione (NON il link completo)
-CONFIG_SPREADSHEET_ID = "1-F8QkULRrF_kfAVcyPdLNiuqqlmsi5ftpQcY7uSnogk"
-
-# Range di lettura del foglio config:
-# A: Nome progetto
-# B: ChatId Telegram
-# C: Giorni_avviso
-# D: Link Gantt
-CONFIG_RANGE = "Foglio1!A2:D"
-
 # Intestazioni usate per costruire i dizionari di output
-HEADERS = ["Nome", "ChatId", "Giorni_avviso", "Gantt"]
+HEADERS = ["Nome", "ChatId", "Giorni_avviso", "Gantt", "Topic_Destinazione"]
 
 
 # ============================================================

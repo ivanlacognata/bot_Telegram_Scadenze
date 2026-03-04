@@ -1,0 +1,7 @@
+venv/
+pycache/
+.env
+service_account.json
+service_account_official.json
+tests/
+.git
