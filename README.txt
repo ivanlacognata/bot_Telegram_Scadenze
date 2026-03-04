@@ -136,18 +136,6 @@ Duplicati nello stesso giorno → NON inviati (uso set).
 
 Il bot supporta gruppi con topic.
 
-Il bot può inviare i messaggi in due modalità, in base al valore della cella
-"Topic_Destinazione" dell'excel:
-
-////Topic_Destinazione non vuoto////
- Tutti i messaggi verranno inviati in quel topic, 
- indipendentemente dal nome dell'area.
-
- Se il topic con quel nome non esiste, i messaggi verranno inviati in General.
-
-////Topic_Destinazione vuoto////
- Comportamento di default, che è il seguente ↓↓↓
-
 Funzionamento:
  Quando viene creato un topic → auto-registrato
  Quando viene rinominato → aggiornato nel JSON
@@ -160,10 +148,23 @@ Il bot deve avere:
 
 Il bot deve far parte del gruppo per funzionare.
 
-↓⚠️IMPORTANTE⚠️↓
-Il nome del topic del gruppo deve essere uguale al nome dell'area nel gantt di riferimento
+Il bot può inviare i messaggi in due modalità, in base al valore della cella
+"Topic_Destinazione" dell'excel:
 
-/////Esempio/////
+////Topic_Destinazione non vuoto////
+ Tutti i messaggi verranno inviati nel topic il cui nome corrisponde a quello
+ inserito nella cella, indipendentemente dal nome dell'area (messaggio unico in un solo topic).
+
+ Se il topic con quel nome non esiste, i messaggi verranno inviati in General.
+
+////Topic_Destinazione vuoto////
+ Comportamento di default: il bot legge il nome dell'area dal Gantt e manda gli
+ avvisi dei relativi servizi nel topic con lo stesso nome (messaggi separati per topic).
+
+ ↓⚠️IMPORTANTE⚠️↓
+ Il nome del topic del gruppo deve essere uguale al nome dell'area nel gantt di riferimento
+
+/////Esempio (con Topic_Destinazione vuoto)/////
 Gantt progetto → 
 ||IT||
 programmare una pagina 
