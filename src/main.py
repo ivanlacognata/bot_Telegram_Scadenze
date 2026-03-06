@@ -22,11 +22,111 @@ import googleSheetRead as gs
 from gantt_reader import read_services_deadlines
 import topic_registry as tr
 
+import random
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ERROR_CHAT_ID = int(os.getenv("ERROR_CHAT_ID"))
 
 MESSAGE_TIME = os.getenv("MESSAGE_TIME", "15:00")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Europe/Rome"))
+
+
+# --------------------------------------
+# Messaggi personalizzabili per gravità
+# --------------------------------------
+
+OVERDUE_MESSAGES = [
+    "Spero che abbiate già consegnato, altrimenti GUAI",
+    "Non c'è più nulla da fare...",
+    "Ormai è troppo tardi...",
+    "Vediamo chi verrà eliminato oggi",
+]
+
+TODAY_MESSAGES = [
+    "Meno di 24 ore alla fine dei giochi",
+    "Spero per voi che abbiate già finito...",
+    "Non so se vi siete accorti di che giorno è oggi"
+    "Prevedo qualche richiamo formale...",
+    "Questo... è l'endgame",
+]
+
+TOMORROW_MESSAGES = [
+    "Dovreste già aver finito, altrimenti...",
+    "Il cliente nonn sarà felice di sapere che non avete ancora finito",
+    "Dovreste darvi una mossa",
+    "La scadenza è già domani e non avete ancora finito, sarà per i postumi dell'AperiJEToP?",
+    "Ultimo sforzo per un progetto che sarà leggen...aspetta...DARIO",
+]
+
+SOON_MESSAGES = [
+    "Dovreste iniziare a preoccuparvi",
+    "Sarebbe meglio per voi essere già a buon punto",
+    "Se qualcuno non dovesse aver finito entro la scadenza, prenderò seri provvedimenti\n~ Presidente (lo giuro)",
+    "Il tesoriere si aspetta quei soldi nel bilancio finale, non deludetelo",
+    "La data si avvicina, e anche il prossimo aperiJEToP",
+    "Vi conviene darvi una mossa",
+    "Sbrigatevi, non vorrete che vada a finire come il JEIMM..."
+]
+
+DEFAULT_MESSAGES = [
+    "Per ora state tranquilli, ma non troppo",
+    "Il cliente può ancora aspettare",
+    "Non illudetevi, presto sarà troppo tardi",
+    "Avete ancora tempo di andare a bere da qualche parte, però dopo tornate a lavorare",
+    "C'è davvero qualcuno che legge queste frasi?",
+    "Il Giappone trasforma i passi in elettricità! ⚡ Grazie alle piastrelle piezoelettriche, ogni passo genera una piccola quantità di energia. Milioni di passi insieme possono alimentare luci e display a LED in luoghi affollati come la stazione di Shibuya. Un modo brillante per creare una città sostenibile e intelligente: trasformare il movimento in energia pulita e rinnovabile 🌱💡",
+    "Siamo JEToP perché siamo i più forti... o siamo i più forti perché siamo JEToP?"
+    "Non importa che tu sia un leone o una gazzella, l'importante è che se muori me lo dici prima",
+    "Chi ha paura muore ogni giorno, chi non ha paura va al CUS senza prenotazione",
+    "Se ti è spuntato questo messaggio congratulazioni, hai vinto un abbraccio❤️",
+    "Due cose sono infinite: l’universo e le modifiche richieste dai clienti, ma riguardo l’universo ho ancora dei dubbi."
+]
+
+# Classifica la "gravità" delle scadenze per i messaggi personalizzati
+def get_severity_messages(days_left: int) -> list[str]:
+    """
+    Restituisce la lista base di frasi in base alla gravità.
+    """
+    if days_left < 0:
+        return OVERDUE_MESSAGES.copy()
+    if days_left == 0:
+        return TODAY_MESSAGES.copy()
+    if days_left == 1:
+        return TOMORROW_MESSAGES.copy()
+    if days_left < 5:
+        return SOON_MESSAGES.copy()
+    return DEFAULT_MESSAGES.copy()
+
+
+# Aggiunge condizioni extra per i messaggi in base al topic
+def extend_conditional_messages(messages: list[str], area: str, days_left: int) -> list[str]:
+    """
+    Aggiunge frasi extra in base a condizioni personalizzate.
+    """
+    area_clean = (area or "").strip()
+
+    # Esempio: aggiungi frasi solo se l'area NON è IT o Web
+    if area_clean not in {"IT", "Web"}:
+        messages.extend([
+            "Un IT avrebbe già finito...",
+            "Un IT farebbe decisamente di meglio",
+            "Credo ci siano pochi IT qui in mezzo...",
+        ])
+    return messages
+
+
+# Sceglie la frase a caso 
+def get_random_fun_message(area: str, days_left: int) -> str:
+    """
+    Costruisce la lista finale di frasi candidate e ne sceglie una a caso.
+    """
+    candidates = get_severity_messages(days_left)
+    candidates = extend_conditional_messages(candidates, area, days_left)
+
+    if not candidates:
+        candidates = DEFAULT_MESSAGES
+
+    return random.choice(candidates)
 
 
 # -----------------------
@@ -80,7 +180,7 @@ def label_for_days_left(days_left: int) -> str:
 
 def build_message(project_name: str, area: str, gantt_url: str, grouped: dict) -> str:
     """
-    grouped: dict days_left -> list[(service_name, deadline_date)]
+    grouped: dict days_left -> list[(service_name, deadline_date, service_area)]
     """
     lines = [
         "⏰ PROMEMORIA SCADENZE",
@@ -89,9 +189,12 @@ def build_message(project_name: str, area: str, gantt_url: str, grouped: dict) -
 
     for days_left in sorted(grouped.keys()):
         lines.append(label_for_days_left(days_left))
-        for name, dline in grouped[days_left]:
+        for name, dline, service_area in grouped[days_left]:
+            fun_line = get_random_fun_message(service_area, days_left)
             lines.append(f" 🏷️ {name} — {dline.strftime('%d/%m/%Y')}")
+            lines.append(f"    💬 {fun_line}")
         lines.append("")
+
     return "\n".join(lines).strip()
 
 
@@ -208,7 +311,7 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
                 if days_left in thresholds:
                     per_area.setdefault(area, {})
                     per_area[area].setdefault(days_left, [])
-                    per_area[area][days_left].append((service_name, deadline))
+                    per_area[area][days_left].append((service_name, deadline, area))
 
             # -----------------------------------------
             # INVIO: due modalità
@@ -228,8 +331,8 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
                     for days_left, items in grouped.items():
                         grouped_all.setdefault(days_left, [])
                         # Prefix area per chiarezza quando si invia tutto insieme
-                        grouped_all[days_left].extend([(f"[{area}] {name}", dline) for name, dline in items])
-
+                        grouped_all[days_left].extend([(f"[{item_area}] {name}", dline, item_area) for name, dline, item_area in items])
+                
                 # se oggi non c'è nulla da avvisare, non invio nulla
                 if grouped_all:
                     # etichetta "area" nel messaggio: usiamo il nome del topic destinazione (o "Generale")

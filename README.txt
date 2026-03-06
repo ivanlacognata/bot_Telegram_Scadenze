@@ -249,7 +249,7 @@ Se il formato cambia (colonne spostate, celle diverse, tab rinominata, ecc.) il 
 
 Si è preso come riferimento standard il Gantt Portfolio.
 
-|✅ Tab e colonne richieste !
+|✅ Tab e colonne richieste |
 
 Il bot legge per default il tab (worksheet) chiamato:
 GANTT (valore di default worksheet_title="GANTT" in read_services_deadlines)
