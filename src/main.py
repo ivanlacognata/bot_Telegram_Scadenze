@@ -261,6 +261,8 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
     data, sheet_api, service = gs.export_data()
     if data == -1 or sheet_api is None or service is None:
         # errore già stampato da export_data(), qui notifichiamo soltanto
+        load_dotenv()
+        print(os.getenv("SERVICE_ACCOUNT_FILE"))
         try:
             await context.bot.send_message(
                 chat_id=ERROR_CHAT_ID,

@@ -7,6 +7,7 @@
 import os
 import re
 from typing import List, Dict, Tuple, Optional
+import json
 
 from dotenv import load_dotenv
 
@@ -67,12 +68,13 @@ def get_sheets_service():
     """
 
     # Verifica che il file credenziali esista
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        raise FileNotFoundError(f"File non trovato: {SERVICE_ACCOUNT_FILE}")
+    #if not os.path.exists(SERVICE_ACCOUNT_FILE):
+    #    raise FileNotFoundError(f"File non trovato: {SERVICE_ACCOUNT_FILE}")
 
     # Caricamento credenziali service account
-    creds = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
+    SERVICE_ACCOUNT_JSON = json.loads(SERVICE_ACCOUNT_FILE)
+    creds = service_account.Credentials.from_service_account_info(
+        SERVICE_ACCOUNT_JSON,
         scopes=SCOPES,
     )
 
