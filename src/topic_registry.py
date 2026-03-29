@@ -41,7 +41,7 @@ def _path() -> str:
     Il file viene salvato nella stessa directory di questo script.
     """
     base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, "topic_map.json")
+    return os.path.join(base, "storage/topic_map.json")
 
 
 # ============================================================

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 import os
+import json
 
 load_dotenv()
 
@@ -35,52 +36,35 @@ TZ = ZoneInfo(os.getenv("TIMEZONE", "Europe/Rome"))
 # Messaggi personalizzabili per gravità
 # --------------------------------------
 
-OVERDUE_MESSAGES = [
-    "Spero che abbiate già consegnato, altrimenti GUAI",
-    "Non c'è più nulla da fare...",
-    "Ormai è troppo tardi...",
-    "Vediamo chi verrà eliminato oggi",
-]
+# Permette la lettura delle variabili dell'env delle frasi come lista di stringhe
+def load_message_list(env_name: str, default: list[str] | None = None) -> list[str]:
+    """
+    Legge una variabile dall'env e la converte in lista di stringhe.
+    Il formato atteso nell'env è JSON, ad esempio:
+    MESSAGES=["frase 1","frase 2"]
+    """
+    raw = os.getenv(env_name)
 
-TODAY_MESSAGES = [
-    "Meno di 24 ore alla fine dei giochi",
-    "Spero per voi che abbiate già finito...",
-    "Non so se vi siete accorti di che giorno è oggi"
-    "Prevedo qualche richiamo formale...",
-    "Questo... è l'endgame",
-]
+    if not raw:
+        return default.copy() if default else []
 
-TOMORROW_MESSAGES = [
-    "Dovreste già aver finito, altrimenti...",
-    "Il cliente nonn sarà felice di sapere che non avete ancora finito",
-    "Dovreste darvi una mossa",
-    "La scadenza è già domani e non avete ancora finito, sarà per i postumi dell'AperiJEToP?",
-    "Ultimo sforzo per un progetto che sarà leggen...aspetta...DARIO",
-]
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed if str(x).strip()]
+    except Exception:
+        pass
 
-SOON_MESSAGES = [
-    "Dovreste iniziare a preoccuparvi",
-    "Sarebbe meglio per voi essere già a buon punto",
-    "Se qualcuno non dovesse aver finito entro la scadenza, prenderò seri provvedimenti\n~ Presidente (lo giuro)",
-    "Il tesoriere si aspetta quei soldi nel bilancio finale, non deludetelo",
-    "La data si avvicina, e anche il prossimo aperiJEToP",
-    "Vi conviene darvi una mossa",
-    "Sbrigatevi, non vorrete che vada a finire come il JEIMM..."
-]
+    # fallback: una sola frase semplice non JSON
+    return [raw.strip()] if raw.strip() else (default.copy() if default else [])
 
-DEFAULT_MESSAGES = [
-    "Per ora state tranquilli, ma non troppo",
-    "Il cliente può ancora aspettare",
-    "Non illudetevi, presto sarà troppo tardi",
-    "Avete ancora tempo di andare a bere da qualche parte, però dopo tornate a lavorare",
-    "C'è davvero qualcuno che legge queste frasi?",
-    "Il Giappone trasforma i passi in elettricità! ⚡ Grazie alle piastrelle piezoelettriche, ogni passo genera una piccola quantità di energia. Milioni di passi insieme possono alimentare luci e display a LED in luoghi affollati come la stazione di Shibuya. Un modo brillante per creare una città sostenibile e intelligente: trasformare il movimento in energia pulita e rinnovabile 🌱💡",
-    "Siamo JEToP perché siamo i più forti... o siamo i più forti perché siamo JEToP?"
-    "Non importa che tu sia un leone o una gazzella, l'importante è che se muori me lo dici prima",
-    "Chi ha paura muore ogni giorno, chi non ha paura va al CUS senza prenotazione",
-    "Se ti è spuntato questo messaggio congratulazioni, hai vinto un abbraccio❤️",
-    "Due cose sono infinite: l’universo e le modifiche richieste dai clienti, ma riguardo l’universo ho ancora dei dubbi."
-]
+
+# Frasi
+OVERDUE_MESSAGES = load_message_list("OVERDUE_MESSAGES")
+TODAY_MESSAGES = load_message_list("TODAY_MESSAGES")
+TOMORROW_MESSAGES = load_message_list("TOMORROW_MESSAGES")
+SOON_MESSAGES = load_message_list("SOON_MESSAGES")
+DEFAULT_MESSAGES = load_message_list("DEFAULT_MESSAGES", ["Occhio alla tabella di marcia 📅"])
 
 # Classifica la "gravità" delle scadenze per i messaggi personalizzati
 def get_severity_messages(days_left: int) -> list[str]:
@@ -178,7 +162,7 @@ def label_for_days_left(days_left: int) -> str:
     return f"🟨 Scade tra {days_left} giorni"
 
 
-def build_message(project_name: str, area: str, gantt_url: str, grouped: dict) -> str:
+def build_message(project_name: str, area: str, grouped: dict) -> str:
     """
     grouped: dict days_left -> list[(service_name, deadline_date, service_area)]
     """
@@ -260,9 +244,6 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
 
     data, sheet_api, service = gs.export_data()
     if data == -1 or sheet_api is None or service is None:
-        # errore già stampato da export_data(), qui notifichiamo soltanto
-        load_dotenv()
-        print(os.getenv("SERVICE_ACCOUNT_FILE"))
         try:
             await context.bot.send_message(
                 chat_id=ERROR_CHAT_ID,
@@ -304,7 +285,7 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
             services = read_services_deadlines(service, gantt_url)
 
             # area -> days_left -> list[(service_name, deadline)]
-            per_area: Dict[str, Dict[int, List[Tuple[str, date]]]] = {}
+            per_area: Dict[str, Dict[int, List[Tuple[str, date, str]]]] = {}
 
             for area, service_name, duration_days, deadline in services:
                 days_left = (deadline - today).days
@@ -321,14 +302,14 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
             # 1) Se Topic_Destinazione è VUOTO -> modalità classica: un messaggio per area
             if not topic_dest_raw:
                 for area, grouped in per_area.items():
-                    msg = build_message(project_name, area, gantt_url, grouped)
+                    msg = build_message(project_name, area, grouped)
                     await send_to_group_or_topic(context, chat_id, area, msg)
                     sent_messages += 1
 
             # 2) Se Topic_Destinazione è COMPILATO -> manda TUTTO in un'unica destinazione
             else:
                 # unisco tutti i servizi di tutte le aree in un unico grouped
-                grouped_all: Dict[int, List[Tuple[str, date]]] = {}
+                grouped_all: Dict[int, List[Tuple[str, date, str]]] = {}
                 for area, grouped in per_area.items():
                     for days_left, items in grouped.items():
                         grouped_all.setdefault(days_left, [])
@@ -339,7 +320,7 @@ async def check_deadlines_job(context: ContextTypes.DEFAULT_TYPE):
                 if grouped_all:
                     # etichetta "area" nel messaggio: usiamo il nome del topic destinazione (o "Generale")
                     label = topic_dest_name if topic_dest_name else (topic_dest_raw or "Generale")
-                    msg = build_message(project_name, label, gantt_url, grouped_all)
+                    msg = build_message(project_name, label, grouped_all)
 
                     # se scrivono "Generale" -> invia nel generale (nessun topic)
                     if topic_dest_raw.strip().lower() == "generale":
